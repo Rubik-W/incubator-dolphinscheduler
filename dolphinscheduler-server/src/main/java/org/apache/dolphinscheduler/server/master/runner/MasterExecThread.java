@@ -936,7 +936,7 @@ public class MasterExecThread implements Runnable {
         // submit start node
         submitPostNode(null);
         boolean sendTimeWarning = false;
-        while(!processInstance.IsProcessInstanceStop()){
+        while(true){
 
             // send warning email if process time out.
             if( !sendTimeWarning && checkProcessTimeOut(processInstance) ){
@@ -1007,15 +1007,22 @@ public class MasterExecThread implements Runnable {
                     }
                 }
             }
+
+            updateProcessInstanceState();
+
+            if (processInstance.IsProcessInstanceStop()) {
+                break;
+            }
+
             if(canSubmitTaskToQueue()){
                 submitStandByTask();
             }
+
             try {
                 Thread.sleep(Constants.SLEEP_TIME_MILLIS);
             } catch (InterruptedException e) {
                 logger.error(e.getMessage(),e);
             }
-            updateProcessInstanceState();
         }
 
         logger.info("process:{} end, state :{}", processInstance.getId(), processInstance.getState());
