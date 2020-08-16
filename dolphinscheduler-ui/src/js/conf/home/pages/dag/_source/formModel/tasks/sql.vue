@@ -148,6 +148,17 @@
         </label>
       </div>
     </m-list-box>
+    <m-list-box v-if="checkDependFlag">
+      <div slot="text">{{$t('Custom')}}{{$t('Datatarget')}}</div>
+      <div slot="content">
+        <m-target-table-depends
+          ref="refTargetTableDepends"
+          @on-http-params="_onTargetTableDepends"
+          :udp-list="targetTableDepends"
+          :hide="false">
+        </m-target-table-depends>
+      </div>
+    </m-list-box>
   </div>
 </template>
 <script>
@@ -163,6 +174,7 @@
   import disabledState from '@/module/mixin/disabledState'
   import mEmail from '@/conf/home/pages/projects/pages/definition/pages/list/_source/email'
   import codemirror from '@/conf/home/pages/resource/pages/file/pages/_source/codemirror'
+  import mTargetTableDepends from './_source/targetTableDepends'
 
   let editor
 
@@ -199,7 +211,9 @@
         // copy to
         receiversCc: [],
         // check depend flag
-        checkDependFlag: true
+        checkDependFlag: true,
+        // customer target table depends
+        targetTableDepends: []
       }
     },
     mixins: [disabledState],
@@ -277,6 +291,12 @@
         this.postStatements = a
       },
       /**
+       * return target table depends
+       */
+      _onTargetTableDepends (o) {
+        this.targetTableDepends = o
+      },
+      /**
        * verification
        */
       _verification () {
@@ -331,6 +351,11 @@
           return false
         }
 
+        // targetTable Subcomponent verification
+        if (this.checkDependFlag && !this.$refs.refTargetTableDepends._verifTargetTable()) {
+          return false
+        }
+
         // storage
         this.$emit('on-params', {
           type: this.type,
@@ -357,7 +382,8 @@
           connParams: this.connParams,
           preStatements: this.preStatements,
           postStatements: this.postStatements,
-          checkDependFlag: this.checkDependFlag ? 1 : 0
+          checkDependFlag: this.checkDependFlag ? 1 : 0,
+          targetTableDepends: this.targetTableDepends
         })
         return true
       },
@@ -430,7 +456,8 @@
           connParams: this.connParams,
           preStatements: this.preStatements,
           postStatements: this.postStatements,
-          checkDependFlag: this.checkDependFlag
+          checkDependFlag: this.checkDependFlag,
+          targetTableDepends: this.targetTableDepends
         });
       },
       _destroyEditor () {
@@ -488,6 +515,12 @@
         this.receivers = o.params.receivers && o.params.receivers.split(',') || []
         this.receiversCc = o.params.receiversCc && o.params.receiversCc.split(',') || []
         this.checkDependFlag = o.params.checkDependFlag == 1 ? true : false
+
+        // backfill targetTableDepends
+        let targetTableDepends = o.params.targetTableDepends || []
+        if (targetTableDepends.length) {
+          this.targetTableDepends = targetTableDepends
+        }
       }
       // read tasks from cache
       if (!_.some(this.store.state.dag.cacheTasks, { id: this.createNodeId }) &&
@@ -536,7 +569,7 @@
         }
       }
     },
-    components: { mListBox, mDatasource, mLocalParams, mUdfs, mSqlType, mStatementList, mEmail }
+    components: { mListBox, mDatasource, mLocalParams, mUdfs, mSqlType, mStatementList, mEmail, mTargetTableDepends }
   }
 </script>
 <style lang="scss" rel="stylesheet/scss">

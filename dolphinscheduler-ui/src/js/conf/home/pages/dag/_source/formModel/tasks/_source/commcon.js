@@ -251,6 +251,16 @@ const nodeStatusList = [
   }
 ]
 
+/**
+ * target db type list (check depend)
+ */
+const targetDbTypeByDependList = [
+  'MYSQL',
+  'POSTGRESQL',
+  'ORACLE',
+  'SQLSERVER'
+]
+
 export {
   cycleList,
   dateValueList,
@@ -258,5 +268,6 @@ export {
   directList,
   sqlTypeList,
   positionList,
-  nodeStatusList
+  nodeStatusList,
+  targetDbTypeByDependList
 }

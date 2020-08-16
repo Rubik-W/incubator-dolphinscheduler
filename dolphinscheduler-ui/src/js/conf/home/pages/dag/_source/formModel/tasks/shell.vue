@@ -61,6 +61,23 @@
         </m-local-params>
       </div>
     </m-list-box>
+    <m-list-box>
+      <div slot="text">{{$t('Dependency Check')}}</div>
+      <div slot="content" style="padding-top: 5px;">
+        <x-switch v-model="checkDependFlag"></x-switch>
+      </div>
+    </m-list-box>
+    <m-list-box v-if="checkDependFlag">
+      <div slot="text">{{$t('Custom')}}{{$t('Datatarget')}}</div>
+      <div slot="content">
+        <m-target-table-depends
+          ref="refTargetTableDepends"
+          @on-http-params="_onTargetTableDepends"
+          :udp-list="targetTableDepends"
+          :hide="false">
+        </m-target-table-depends>
+      </div>
+    </m-list-box>
   </div>
 </template>
 <script>
@@ -74,6 +91,7 @@
   import Treeselect from '@riophae/vue-treeselect'
   import '@riophae/vue-treeselect/dist/vue-treeselect.css'
   import codemirror from '@/conf/home/pages/resource/pages/file/pages/_source/codemirror'
+  import mTargetTableDepends from './_source/targetTableDepends'
 
   let editor
 
@@ -98,7 +116,11 @@
           }
         },
         allNoResources: [],
-        noRes: []
+        noRes: [],
+        // check depend flag
+        checkDependFlag: false,
+        // customer target table depends
+        targetTableDepends: []
       }
     },
     mixins: [disabledState],
@@ -111,6 +133,12 @@
        */
       _onLocalParams (a) {
         this.localParams = a
+      },
+      /**
+       * return target table depends
+       */
+      _onTargetTableDepends (o) {
+        this.targetTableDepends = o
       },
       setEditorVal() {
         let self = this
@@ -172,6 +200,10 @@
           this.$message.warning(`${i18n.$t('Please delete all non-existent resources')}`)
           return false
         }
+        // targetTable Subcomponent verification
+        if (this.checkDependFlag && !this.$refs.refTargetTableDepends._verifTargetTable()) {
+          return false
+        }
         // Process resourcelist
         let dataProcessing= _.map(this.resourceList, v => {
           return {
@@ -182,7 +214,9 @@
         this.$emit('on-params', {
           resourceList: dataProcessing,
           localParams: this.localParams,
-          rawScript: editor.getValue()
+          rawScript: editor.getValue(),
+          checkDependFlag: this.checkDependFlag ? 1 : 0,
+          targetTableDepends: this.targetTableDepends
         })
         return true
       },
@@ -318,7 +352,9 @@
         this.noRes = result
         return {
           resourceList: resourceIdArr,
-          localParams: this.localParams
+          localParams: this.localParams,
+          checkDependFlag: this.checkDependFlag ? 1 : 0,
+          targetTableDepends: this.targetTableDepends
         }
       }
     },
@@ -327,7 +363,7 @@
       this.diGuiTree(item)
       this.options = item
       let o = this.backfillItem
-      
+
       // Non-null objects represent backfill
       if (!_.isEmpty(o)) {
         this.rawScript = o.params.rawScript || ''
@@ -355,11 +391,19 @@
           })
           this.cacheResourceList = resourceList
         }
-        
+
         // backfill localParams
         let localParams = o.params.localParams || []
         if (localParams.length) {
           this.localParams = localParams
+        }
+
+        this.checkDependFlag = o.params.checkDependFlag == 1 ? true : false
+
+        // backfill targetTableDepends
+        let targetTableDepends = o.params.targetTableDepends || []
+        if (targetTableDepends.length) {
+          this.targetTableDepends = targetTableDepends
         }
       }
     },
@@ -374,7 +418,7 @@
         editor.off($('.code-shell-mirror'), 'keypress', this.keypress)
       }
     },
-    components: { mLocalParams, mListBox, mResources, mScriptBox, Treeselect }
+    components: { mLocalParams, mListBox, mResources, mScriptBox, Treeselect, mTargetTableDepends }
   }
 </script>
 <style lang="scss" rel="stylesheet/scss" scope>

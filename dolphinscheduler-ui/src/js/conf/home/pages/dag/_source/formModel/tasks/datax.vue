@@ -156,6 +156,17 @@
         </label>
       </div>
     </m-list-box>
+    <m-list-box v-if="checkDependFlag">
+      <div slot="text">{{$t('Custom')}}{{$t('Datatarget')}}</div>
+      <div slot="content">
+        <m-target-table-depends
+          ref="refTargetTableDepends"
+          @on-http-params="_onTargetTableDepends"
+          :udp-list="targetTableDepends"
+          :hide="false">
+        </m-target-table-depends>
+      </div>
+    </m-list-box>
   </div>
 </template>
 <script>
@@ -169,6 +180,7 @@
   import disabledState from '@/module/mixin/disabledState'
   import mSelectInput from '../_source/selectInput'
   import codemirror from '@/conf/home/pages/resource/pages/file/pages/_source/codemirror'
+  import mTargetTableDepends from './_source/targetTableDepends'
 
   let editor
   let jsonEditor
@@ -209,7 +221,9 @@
         localParams: [],
         customConfig: 0,
         // check depend flag
-        checkDependFlag: true
+        checkDependFlag: true,
+        // customer target table depends
+        targetTableDepends: []
       }
     },
     mixins: [disabledState],
@@ -320,6 +334,12 @@
         this.localParams = a
       },
       /**
+       * return target table depends
+       */
+      _onTargetTableDepends (o) {
+        this.targetTableDepends = o
+      },
+      /**
        * verification
        */
       _verification () {
@@ -372,6 +392,11 @@
             return false
           }
 
+          // targetTable Subcomponent verification
+          if (this.checkDependFlag && !this.$refs.refTargetTableDepends._verifTargetTable()) {
+            return false
+          }
+
           // storage
           this.$emit('on-params', {
             customConfig: this.customConfig,
@@ -385,7 +410,8 @@
             jobSpeedRecord: this.jobSpeedRecord,
             preStatements: this.preStatements,
             postStatements: this.postStatements,
-            checkDependFlag: this.checkDependFlag ? 1 : 0
+            checkDependFlag: this.checkDependFlag ? 1 : 0,
+            targetTableDepends: this.targetTableDepends
           })
           return true
         }
@@ -499,6 +525,12 @@
           this.preStatements = o.params.preStatements || []
           this.postStatements = o.params.postStatements || []
           this.checkDependFlag = o.params.checkDependFlag == 1 ? true : false
+
+          // backfill targetTableDepends
+          let targetTableDepends = o.params.targetTableDepends || []
+          if (targetTableDepends.length) {
+            this.targetTableDepends = targetTableDepends
+          }
         } else {
           this.customConfig = 1
           this.enable = true
@@ -548,11 +580,12 @@
           jobSpeedByte: this.jobSpeedByte * 1024,
           jobSpeedRecord: this.jobSpeedRecord,
           preStatements: this.preStatements,
-          postStatements: this.postStatements
+          postStatements: this.postStatements,
+          targetTableDepends: this.targetTableDepends
         }
       }
     },
-    components: { mListBox, mDatasource, mLocalParams, mStatementList, mSelectInput }
+    components: { mListBox, mDatasource, mLocalParams, mStatementList, mSelectInput, mTargetTableDepends }
   }
 </script>
 <style lang="scss" rel="stylesheet/scss" scope>
