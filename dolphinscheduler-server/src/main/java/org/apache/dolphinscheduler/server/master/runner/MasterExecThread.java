@@ -24,10 +24,14 @@ import org.apache.dolphinscheduler.common.graph.DAG;
 import org.apache.dolphinscheduler.common.model.TaskNode;
 import org.apache.dolphinscheduler.common.model.TaskNodeRelation;
 import org.apache.dolphinscheduler.common.process.ProcessDag;
+import org.apache.dolphinscheduler.common.task.AbstractParameters;
 import org.apache.dolphinscheduler.common.task.conditions.ConditionsParameters;
 import org.apache.dolphinscheduler.common.thread.Stopper;
 import org.apache.dolphinscheduler.common.thread.ThreadUtils;
 import org.apache.dolphinscheduler.common.utils.*;
+import org.apache.dolphinscheduler.common.utils.DependUnionKeyUtils;
+import org.apache.dolphinscheduler.dao.entity.ProcessData;
+import org.apache.dolphinscheduler.dao.entity.ProcessDefinition;
 import org.apache.dolphinscheduler.dao.entity.ProcessInstance;
 import org.apache.dolphinscheduler.dao.entity.Schedule;
 import org.apache.dolphinscheduler.dao.entity.TaskInstance;
@@ -165,9 +169,6 @@ public class MasterExecThread implements Runnable {
         this.nettyRemotingClient = nettyRemotingClient;
         this.alertManager = alertManager;
     }
-
-
-
 
     @Override
     public void run() {
@@ -354,21 +355,125 @@ public class MasterExecThread implements Runnable {
         // generate process to get DAG info
         List<String> recoveryNameList = getRecoveryNodeNameList();
         List<String> startNodeNameList = parseStartNodeName(processInstance.getCommandParam());
-        ProcessDag processDag = generateFlowDag(processInstance.getProcessInstanceJson(),
+
+        ProcessData processData = JSONUtils.parseObject(processInstance.getProcessInstanceJson(), ProcessData.class);
+        resetDagTaskNodesByDataLineage(processData.getTasks(), startNodeNameList);
+
+        ProcessDag processDag = generateFlowDag(processData.getTasks(),
                 startNodeNameList, recoveryNameList, processInstance.getTaskDependType());
         if(processDag == null){
             logger.error("processDag is null");
             return;
         }
+
         // generate process dag
         dag = DagHelper.buildDagGraph(processDag);
+    }
+
+    /**
+     * reset dag task nodes by data lineage
+     * @param taskNodeList
+     * @param startNodeNameList
+     */
+    private void resetDagTaskNodesByDataLineage(List<TaskNode> taskNodeList, List<String> startNodeNameList) {
+        Map<String, TaskNode> existedTaskNodeMap = new HashMap<>();
+
+        for(TaskNode taskNode : taskNodeList) {
+            if (taskNode.isForbidden()) {
+                continue;
+            }
+
+            // clear pre task depend of start nodes
+            if (processInstance.getTaskDependType() != TaskDependType.TASK_PRE
+                    && startNodeNameList.contains(taskNode.getName())) {
+                taskNode.setPreTasks(null);
+            }
+
+            existedTaskNodeMap.put(processInstance.getProcessDefinitionId() + taskNode.getName(), taskNode);
+        }
+
+        int nodeSize = taskNodeList.size();
+        for(int i = 0; i < nodeSize; i++) {
+            if (taskNodeList.get(i).isForbidden()) {
+                continue;
+            }
+
+            analyseNodeDependByTableLineage(taskNodeList, taskNodeList.get(i), taskNodeList.get(i), existedTaskNodeMap);
+        }
+    }
+
+    /**
+     * analyse node depend by table lineage
+     * @param lineageNodeList
+     * @param analyseNode
+     * @param postNode
+     * @param existedTaskNodeMap
+     */
+    private void analyseNodeDependByTableLineage(List<TaskNode> lineageNodeList, TaskNode analyseNode, TaskNode postNode, Map<String, TaskNode> existedTaskNodeMap) {
+        // exist depend tag
+        AbstractParameters parameters = TaskParametersUtils.getParameters(analyseNode.getType(), analyseNode.getParams());
+        if (!parameters.isCheckDepend()) {
+            return;
+        }
+
+        logger.info("task {} start analyse table depend : {}", analyseNode.getName(), parameters.getDependNodeKeys());
+
+        // query all dependent processes
+        String[] dependNodeKeys = parameters.getDependNodeKeys().split(COMMA);
+        List<ProcessDefinition> processDefinitionList = processService.queryDependDefinitionList(dependNodeKeys);
+        if (CollectionUtils.isEmpty(processDefinitionList)) {
+            return;
+        }
+
+        for (ProcessDefinition processDefinition : processDefinitionList) {
+            ProcessData processData = JSONUtils.parseObject(processDefinition.getProcessDefinitionJson(), ProcessData.class);
+            List<TaskNode> dependTaskNodeList = (processData.getTasks() == null) ? new ArrayList<>() : processData.getTasks();
+
+            for (TaskNode realNode : dependTaskNodeList) {
+                /**
+                 * 1. non forbidden
+                 * 2. non oneself node
+                 * 3. exist depend relation
+                 */
+                if (!realNode.isForbidden()
+                        && !analyseNode.getName().equals(realNode.getName())
+                        && DependUnionKeyUtils.existDependRelation(realNode, dependNodeKeys)) {
+
+                    // check if the depend node exists
+                    if (existedTaskNodeMap.containsKey(processDefinition.getId() + realNode.getName())) {
+                        TaskNode dependNode = existedTaskNodeMap.get(processDefinition.getId() + realNode.getName());
+                        TaskNodeUtils.addNodeDependentItem(dependNode, processDefinition.getId(), realNode.getName());
+                        TaskNodeUtils.addNodeDepList(postNode, dependNode);
+                        logger.info("new depend relation : {} -> {}", dependNode.getName(), postNode.getName());
+                        continue;
+                    }
+
+                    // new depend node
+                    TaskNode dependNode = TaskNodeUtils.buildDependTaskNode(processDefinition.getName(), realNode.getName(),
+                            masterConfig.getTableLineageDependRetryTimes(), masterConfig.getTableLineageDependRetryInterval());
+
+                    // cache node
+                    existedTaskNodeMap.put(processDefinition.getId() + realNode.getName(), dependNode);
+
+                    // add node relation
+                    TaskNodeUtils.addNodeDependentItem(dependNode, processDefinition.getId(), realNode.getName());
+                    TaskNodeUtils.addNodeDepList(postNode, dependNode);
+
+                    lineageNodeList.add(dependNode);
+
+                    logger.info("new depend relation : {} -> {}", dependNode.getName(), postNode.getName());
+
+                    // analyse current node table lineage
+                    analyseNodeDependByTableLineage(lineageNodeList, realNode, dependNode, existedTaskNodeMap);
+                }
+            }
+        }
     }
 
     /**
      * init task queue
      */
     private void initTaskQueue(){
-
         taskFailedSubmit = false;
         activeTaskNode.clear();
         dependFailedTask.clear();
@@ -691,8 +796,6 @@ public class MasterExecThread implements Runnable {
                 return DependResult.WAITING;
             }
         }
-
-        logger.info("taskName: {} completeDependTaskList: {}", taskName, Arrays.toString(completeTaskList.keySet().toArray()));
 
         return DependResult.SUCCESS;
     }
@@ -1206,17 +1309,17 @@ public class MasterExecThread implements Runnable {
 
     /**
      * generate flow dag
-     * @param processDefinitionJson process definition json
+     * @param taskNodeList          task node list
      * @param startNodeNameList     start node name list
      * @param recoveryNodeNameList  recovery node name list
      * @param depNodeType           depend node type
      * @return ProcessDag           process dag
      * @throws Exception            exception
      */
-    public ProcessDag generateFlowDag(String processDefinitionJson,
+    public ProcessDag generateFlowDag(List<TaskNode> taskNodeList,
                                       List<String> startNodeNameList,
                                       List<String> recoveryNodeNameList,
                                       TaskDependType depNodeType)throws Exception{
-        return DagHelper.generateFlowDag(processDefinitionJson, startNodeNameList, recoveryNodeNameList, depNodeType);
+        return DagHelper.generateFlowDag(taskNodeList, startNodeNameList, recoveryNodeNameList, depNodeType);
     }
 }

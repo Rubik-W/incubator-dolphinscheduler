@@ -47,7 +47,7 @@ public interface ProcessDefinitionService {
                                                 String processDefinitionJson,
                                                 String desc,
                                                 String locations,
-                                                String connects) throws JsonProcessingException;
+                                                String connects) throws Exception;
 
     /**
      * query process definition list
@@ -101,7 +101,7 @@ public interface ProcessDefinitionService {
     Map<String, Object> batchCopyProcessDefinition(User loginUser,
                                                           String projectName,
                                                           String processDefinitionIds,
-                                                          int targetProjectId);
+                                                          int targetProjectId) throws Exception;
 
     /**
      * batch move process definition
@@ -114,7 +114,7 @@ public interface ProcessDefinitionService {
     Map<String, Object> batchMoveProcessDefinition(User loginUser,
                                                           String projectName,
                                                           String processDefinitionIds,
-                                                          int targetProjectId);
+                                                          int targetProjectId) throws Exception;
 
     /**
      * update  process definition
@@ -134,7 +134,7 @@ public interface ProcessDefinitionService {
                                                 int id,
                                                 String name,
                                                 String processDefinitionJson, String desc,
-                                                String locations, String connects);
+                                                String locations, String connects) throws Exception;
 
     /**
      * verify process definition name unique
@@ -197,7 +197,7 @@ public interface ProcessDefinitionService {
      */
     Map<String, Object> importProcessDefinition(User loginUser,
                                                 MultipartFile file,
-                                                String currentProjectName);
+                                                String currentProjectName) throws Exception;
 
     /**
      * check the process definition node meets the specifications
@@ -243,5 +243,15 @@ public interface ProcessDefinitionService {
      */
     Map<String, Object> viewTree(Integer processId,
                                  Integer limit) throws Exception;
+
+    /**
+     * Encapsulates the TreeView structure (dependence)
+     *
+     * @param processId process definition id
+     * @return tree view json data
+     * @throws Exception exception
+     */
+    Map<String, Object> viewTreeByDepend(Integer processId) throws Exception;
+
 }
 

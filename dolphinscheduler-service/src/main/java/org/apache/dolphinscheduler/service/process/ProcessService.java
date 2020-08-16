@@ -26,6 +26,7 @@ import org.apache.dolphinscheduler.common.model.TaskNode;
 import org.apache.dolphinscheduler.common.process.Property;
 import org.apache.dolphinscheduler.common.task.subprocess.SubProcessParameters;
 import org.apache.dolphinscheduler.common.utils.*;
+import org.apache.dolphinscheduler.common.utils.DependUnionKeyUtils;
 import org.apache.dolphinscheduler.dao.entity.*;
 import org.apache.dolphinscheduler.dao.mapper.*;
 import org.apache.dolphinscheduler.remote.utils.Host;
@@ -1848,6 +1849,20 @@ public class ProcessService {
                 definition.getId(),
                 processInstanceById.getId(),
                 taskInstance.getId());
+    }
+
+    /**
+     * query depend process definition list
+     * @param dependNodeKeys depend node keys
+     * @return process definition list
+     */
+    public List<ProcessDefinition> queryDependDefinitionList(String[] dependNodeKeys){
+        if(dependNodeKeys == null || dependNodeKeys.length == 0) {
+            return null;
+        }
+
+        String[] targetNodeKeys = DependUnionKeyUtils.replaceMarkWordToTarget(dependNodeKeys);
+        return processDefineMapper.queryDefinitionByTargetNodeKeys(targetNodeKeys);
     }
 
 }

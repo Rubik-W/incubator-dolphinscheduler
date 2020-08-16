@@ -16,8 +16,11 @@
  */
 package org.apache.dolphinscheduler.common.task;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.apache.dolphinscheduler.common.enums.Flag;
 import org.apache.dolphinscheduler.common.process.Property;
 import org.apache.dolphinscheduler.common.process.ResourceInfo;
+import org.apache.dolphinscheduler.common.utils.StringUtils;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,6 +43,21 @@ public abstract class AbstractParameters implements IParameters {
   public List<Property> localParams;
 
   /**
+   * check depend flag
+   */
+  private int checkDependFlag;
+
+  /**
+   * target node keys
+   */
+  private String targetNodeKeys;
+
+  /**
+   * depend node keys
+   */
+  private String dependNodeKeys;
+
+  /**
    * get local parameters list
    * @return Property list
    */
@@ -51,10 +69,35 @@ public abstract class AbstractParameters implements IParameters {
     this.localParams = localParams;
   }
 
+  public int getCheckDependFlag() {
+    return checkDependFlag;
+  }
+
+  public void setCheckDependFlag(int checkDependFlag) {
+    this.checkDependFlag = checkDependFlag;
+  }
+
+  public String getTargetNodeKeys() {
+    return targetNodeKeys;
+  }
+
+  public void setTargetNodeKeys(String targetNodeKeys) {
+    this.targetNodeKeys = targetNodeKeys;
+  }
+
+  public String getDependNodeKeys() {
+    return dependNodeKeys;
+  }
+
+  public void setDependNodeKeys(String dependNodeKeys) {
+    this.dependNodeKeys = dependNodeKeys;
+  }
+
   /**
    * get local parameters map
    * @return parameters map
    */
+  @JsonIgnore
   public Map<String,Property> getLocalParametersMap() {
       if (localParams != null) {
         Map<String,Property> localParametersMaps = new LinkedHashMap<>();
@@ -65,6 +108,15 @@ public abstract class AbstractParameters implements IParameters {
         return localParametersMaps;
       }
       return null;
+  }
+
+  public boolean isCheckDepend() {
+    if (this.getCheckDependFlag() == Flag.NO.ordinal()
+            || StringUtils.isEmpty(this.getDependNodeKeys())) {
+      return false;
+    }
+
+    return true;
   }
 
 }

@@ -204,7 +204,6 @@ public final class Constants {
      */
     public static final String ZOOKEEPER_DOLPHINSCHEDULER_LOCK_FAILOVER_STARTUP_MASTERS = "/lock/failover/startup-masters";
 
-
     /**
      * comma ,
      */
@@ -244,6 +243,15 @@ public final class Constants {
      */
     public static final String AT_SIGN = "@";
 
+    /**
+     * dot .
+     */
+    public static final String DOT = ".";
+
+    /**
+     * SHARP
+     */
+    public static final String SHARP = "#";
 
     public static final String WORKER_MAX_CPULOAD_AVG = "worker.max.cpuload.avg";
 
@@ -389,6 +397,11 @@ public final class Constants {
      * rpc port
      */
     public static final int RPC_PORT = 50051;
+
+    /**
+     * normal running task
+     */
+    public static final String FLOWNODE_RUN_FLAG_NORMAL = "NORMAL";
 
     /**
      * forbid running task
@@ -983,6 +996,7 @@ public final class Constants {
 
     public static final String START_TIME = "start time";
     public static final String END_TIME = "end time";
+
     /**
      * system line separator
      */
@@ -993,11 +1007,16 @@ public final class Constants {
      */
     public static final String DOLPHIN_SCHEDULER_PREFERRED_NETWORK_INTERFACE = "dolphin.scheduler.network.interface.preferred";
 
-
     /**
      * datasource encryption salt
      */
     public static final String DATASOURCE_ENCRYPTION_SALT_DEFAULT = "!@#$%^&*";
     public static final String DATASOURCE_ENCRYPTION_ENABLE = "datasource.encryption.enable";
     public static final String DATASOURCE_ENCRYPTION_SALT = "datasource.encryption.salt";
+
+    /**
+     * default worker group id
+     */
+    public static final int DEFAULT_WORKER_GROUP_ID = -1;
+
 }

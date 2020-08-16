@@ -16,6 +16,7 @@
  */
 package org.apache.dolphinscheduler.common.model;
 
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import org.apache.dolphinscheduler.common.Constants;
 import org.apache.dolphinscheduler.common.enums.Priority;
 import org.apache.dolphinscheduler.common.enums.TaskTimeoutStrategy;
@@ -168,6 +169,7 @@ public class TaskNode {
     this.type = type;
   }
 
+  @JsonRawValue
   public String getParams() {
     return params;
   }
@@ -180,7 +182,7 @@ public class TaskNode {
     return preTasks;
   }
 
-  public void setPreTasks(String preTasks) throws IOException {
+  public void setPreTasks(String preTasks) {
     this.preTasks = preTasks;
     this.depList = JSONUtils.toList(preTasks, String.class);
   }
@@ -197,7 +199,7 @@ public class TaskNode {
     return depList;
   }
 
-  public void setDepList(List<String> depList) throws JsonProcessingException {
+  public void setDepList(List<String> depList) {
     this.depList = depList;
     this.preTasks = JSONUtils.toJsonString(depList);
   }

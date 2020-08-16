@@ -84,7 +84,7 @@ public class ProcessDefinitionController extends BaseController {
                                           @RequestParam(value = "processDefinitionJson", required = true) String json,
                                           @RequestParam(value = "locations", required = true) String locations,
                                           @RequestParam(value = "connects", required = true) String connects,
-                                          @RequestParam(value = "description", required = false) String description) throws JsonProcessingException {
+                                          @RequestParam(value = "description", required = false) String description) throws Exception {
 
         logger.info("login user {}, create  process definition, project name: {}, process definition name: {}, " +
                         "process_definition_json: {}, desc: {} locations:{}, connects:{}",
@@ -213,7 +213,7 @@ public class ProcessDefinitionController extends BaseController {
                                            @RequestParam(value = "processDefinitionJson", required = true) String processDefinitionJson,
                                            @RequestParam(value = "locations", required = false) String locations,
                                            @RequestParam(value = "connects", required = false) String connects,
-                                           @RequestParam(value = "description", required = false) String description) {
+                                           @RequestParam(value = "description", required = false) String description) throws Exception {
 
         logger.info("login user {}, update process define, project name: {}, process define name: {}, " +
                         "process_definition_json: {}, desc: {}, locations:{}, connects:{}",
@@ -357,6 +357,23 @@ public class ProcessDefinitionController extends BaseController {
                            @RequestParam("processId") Integer id,
                            @RequestParam("limit") Integer limit) throws Exception {
         Map<String, Object> result = processDefinitionService.viewTree(id, limit);
+        return returnDataList(result);
+    }
+
+    /**
+     * encapsulation treeview structure (dependence)
+     *
+     * @param id process definition id
+     * @return tree view json data
+     */
+    @ApiOperation(value = "viewTreeByDepend", notes= "VIEW_TREE_DEPEND_NOTES")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "processId", value = "PROCESS_DEFINITION_ID", required = true, dataType = "Int", example = "100")
+    })
+    @GetMapping(value="/view-tree-depend")
+    @ResponseStatus(HttpStatus.OK)
+    public Result viewTreeByDepend(@RequestParam("processId") Integer id) throws Exception {
+        Map<String, Object> result = processDefinitionService.viewTreeByDepend(id);
         return returnDataList(result);
     }
 

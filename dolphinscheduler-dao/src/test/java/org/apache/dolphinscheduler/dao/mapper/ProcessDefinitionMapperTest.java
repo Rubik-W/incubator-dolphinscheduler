@@ -248,11 +248,17 @@ public class ProcessDefinitionMapperTest {
     }
 
     @Test
-    public void listResourcesByUserTest(){
+    public void listResourcesByUserTest() {
         ProcessDefinition processDefinition = insertOne();
         processDefinition.setResourceIds("3,5");
         processDefinition.setReleaseState(ReleaseState.ONLINE);
         List<Map<String, Object>> maps = processDefinitionMapper.listResourcesByUser(processDefinition.getUserId());
         Assert.assertNotNull(maps);
+    }
+
+    @Test
+    public void testFindALlTaskListByProcessInstanceId(){
+        List<ProcessDefinition> processDefinitionList = processDefinitionMapper.queryDefinitionByTargetNodeKeys(new String[]{"127.0.0.1:db1:t1"});
+        Assert.assertEquals(0, processDefinitionList == null ? 0 : processDefinitionList.size());
     }
 }

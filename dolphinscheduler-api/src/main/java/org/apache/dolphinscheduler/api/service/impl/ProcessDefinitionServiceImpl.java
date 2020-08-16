@@ -21,6 +21,7 @@ import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_SUB_PROCESS_
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -50,6 +51,7 @@ import org.apache.dolphinscheduler.api.utils.exportprocess.ProcessAddTaskParam;
 import org.apache.dolphinscheduler.api.utils.exportprocess.TaskNodeParamFactory;
 import org.apache.dolphinscheduler.common.Constants;
 import org.apache.dolphinscheduler.common.enums.AuthorizationType;
+import org.apache.dolphinscheduler.common.enums.DbType;
 import org.apache.dolphinscheduler.common.enums.FailureStrategy;
 import org.apache.dolphinscheduler.common.enums.Flag;
 import org.apache.dolphinscheduler.common.enums.Priority;
@@ -63,13 +65,22 @@ import org.apache.dolphinscheduler.common.model.TaskNodeRelation;
 import org.apache.dolphinscheduler.common.process.ProcessDag;
 import org.apache.dolphinscheduler.common.process.Property;
 import org.apache.dolphinscheduler.common.task.AbstractParameters;
+import org.apache.dolphinscheduler.common.task.datax.DataxParameters;
+import org.apache.dolphinscheduler.common.task.sql.SqlParameters;
 import org.apache.dolphinscheduler.common.thread.Stopper;
 import org.apache.dolphinscheduler.common.utils.CollectionUtils;
 import org.apache.dolphinscheduler.common.utils.DateUtils;
+import org.apache.dolphinscheduler.common.utils.DependUnionKeyUtils;
 import org.apache.dolphinscheduler.common.utils.JSONUtils;
+import org.apache.dolphinscheduler.common.utils.JdbcUtils;
+import org.apache.dolphinscheduler.common.utils.SqlUtils;
 import org.apache.dolphinscheduler.common.utils.StreamUtils;
 import org.apache.dolphinscheduler.common.utils.StringUtils;
+import org.apache.dolphinscheduler.common.utils.TaskNodeUtils;
 import org.apache.dolphinscheduler.common.utils.TaskParametersUtils;
+import org.apache.dolphinscheduler.dao.datasource.BaseDataSource;
+import org.apache.dolphinscheduler.dao.datasource.DataSourceFactory;
+import org.apache.dolphinscheduler.dao.entity.DataSource;
 import org.apache.dolphinscheduler.dao.entity.ProcessData;
 import org.apache.dolphinscheduler.dao.entity.ProcessDefinition;
 import org.apache.dolphinscheduler.dao.entity.ProcessInstance;
@@ -77,6 +88,7 @@ import org.apache.dolphinscheduler.dao.entity.Project;
 import org.apache.dolphinscheduler.dao.entity.Schedule;
 import org.apache.dolphinscheduler.dao.entity.TaskInstance;
 import org.apache.dolphinscheduler.dao.entity.User;
+import org.apache.dolphinscheduler.dao.mapper.DataSourceMapper;
 import org.apache.dolphinscheduler.dao.mapper.ProcessDefinitionMapper;
 import org.apache.dolphinscheduler.dao.mapper.ProcessInstanceMapper;
 import org.apache.dolphinscheduler.dao.mapper.ProjectMapper;
@@ -135,6 +147,9 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
     @Autowired
     private ProcessService processService;
 
+    @Autowired
+    private DataSourceMapper dataSourceMapper;
+
     /**
      * create process definition
      *
@@ -154,7 +169,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
                                                        String processDefinitionJson,
                                                        String desc,
                                                        String locations,
-                                                       String connects) throws JsonProcessingException {
+                                                       String connects) throws Exception {
 
         Map<String, Object> result = new HashMap<>(5);
         Project project = projectMapper.queryByName(projectName);
@@ -178,7 +193,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
         processDefine.setReleaseState(ReleaseState.OFFLINE);
         processDefine.setProjectId(project.getId());
         processDefine.setUserId(loginUser.getId());
-        processDefine.setProcessDefinitionJson(processDefinitionJson);
+        processDefine.setProcessDefinitionJson(refreshTaskNodeDependParams(processDefinitionJson));
         processDefine.setDescription(desc);
         processDefine.setLocations(locations);
         processDefine.setConnects(connects);
@@ -204,6 +219,84 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
         putMsg(result, Status.SUCCESS);
         result.put("processDefinitionId", processDefine.getId());
         return result;
+    }
+
+    public String refreshTaskNodeDependParams(String processDefinitionJson) throws Exception {
+        if (StringUtils.isEmpty(processDefinitionJson)) {
+            return processDefinitionJson;
+        }
+
+        ProcessData processData = JSONUtils.parseObject(processDefinitionJson, ProcessData.class);
+
+        if (CollectionUtils.isEmpty(processData.getTasks())) {
+            return processDefinitionJson;
+        }
+
+        String taskNodeName = "";
+        try {
+            for (TaskNode taskNode : processData.getTasks()) {
+                taskNodeName = taskNode.getName();
+                if (taskNode.getType().equals(TaskType.SQL.toString())) {
+                    logger.info("task node [{}] set depend params", taskNode.getName());
+                    SqlParameters sqlParameters = (SqlParameters) TaskParametersUtils.getParameters(taskNode.getType(), taskNode.getParams());
+                    initSqlNodeDependParams(sqlParameters);
+                    taskNode.setParams(JSONUtils.toJsonString(sqlParameters));
+                } else if (taskNode.getType().equals(TaskType.DATAX.toString())) {
+                    logger.info("task node [{}] set depend params", taskNode.getName());
+                    DataxParameters etlParameters = (DataxParameters) TaskParametersUtils.getParameters(taskNode.getType(), taskNode.getParams());
+                    initEtlNodeDependParams(etlParameters);
+                    taskNode.setParams(JSONUtils.toJsonString(etlParameters));
+                }
+            }
+        } catch (Exception e) {
+            throw new SQLException(String.format("node [%s] refresh depend parameter fail : %s", taskNodeName, e.getMessage()));
+        }
+
+        return JSONUtils.toJsonString(processData);
+    }
+
+    private void initSqlNodeDependParams(SqlParameters parameters) throws SQLException {
+        DataSource dataSource = dataSourceMapper.selectById(parameters.getDatasource());
+        if (dataSource == null) {
+            return;
+        }
+
+        BaseDataSource dataSourceForm = DataSourceFactory.getDatasource(dataSource.getType(), dataSource.getConnectionParams());
+        String[] hostsPorts = JdbcUtils.getHostsAndPort(dataSourceForm.getAddress());
+
+        List<String> selectTableList = SqlUtils.resolveSqlSelectTables(DbType.valueOf(parameters.getType()), parameters.getSql());
+        List<String> insertTableList = SqlUtils.resolveSqlInsertTables(DbType.valueOf(parameters.getType()), parameters.getSql());
+
+        selectTableList.removeAll(insertTableList);
+
+        parameters.setDependNodeKeys(DependUnionKeyUtils.buildDependTableUnionKey(hostsPorts[0], dataSourceForm.getDatabase(), selectTableList));
+
+        if (CollectionUtils.isNotEmpty(insertTableList)) {
+            parameters.setTargetNodeKeys(DependUnionKeyUtils.buildTargetTableUnionKey(hostsPorts[0], dataSourceForm.getDatabase(), insertTableList));
+        }
+    }
+
+    private void initEtlNodeDependParams(DataxParameters parameters) throws SQLException {
+        List<String> tableList = SqlUtils.resolveSqlSelectTables(DbType.valueOf(parameters.getDsType()), parameters.getSql());
+        if (CollectionUtils.isEmpty(tableList)) {
+            return;
+        }
+
+        DataSource dataSource = dataSourceMapper.selectById(parameters.getDataSource());
+        DataSource dataTarget = dataSourceMapper.selectById(parameters.getDataTarget());
+        if (dataSource == null || dataTarget == null) {
+            return;
+        }
+
+        BaseDataSource dataSourceForm = DataSourceFactory.getDatasource(dataSource.getType(), dataSource.getConnectionParams());
+        String[] hostsPorts = JdbcUtils.getHostsAndPort(dataSourceForm.getAddress());
+
+
+        BaseDataSource dataTargetForm = DataSourceFactory.getDatasource(dataTarget.getType(), dataTarget.getConnectionParams());
+        String[] targetHostsPorts = JdbcUtils.getHostsAndPort(dataTargetForm.getAddress());
+
+        parameters.setDependNodeKeys(DependUnionKeyUtils.buildDependTableUnionKey(hostsPorts[0], dataSourceForm.getDatabase(), tableList));
+        parameters.setTargetNodeKeys(DependUnionKeyUtils.buildTargetTableUnionKey(targetHostsPorts[0], dataTargetForm.getDatabase(), parameters.getTargetTable()));
     }
 
     /**
@@ -341,7 +434,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
      */
     public Map<String, Object> updateProcessDefinition(User loginUser, String projectName, int id, String name,
                                                        String processDefinitionJson, String desc,
-                                                       String locations, String connects) {
+                                                       String locations, String connects) throws Exception {
         Map<String, Object> result = new HashMap<>(5);
 
         Project project = projectMapper.queryByName(projectName);
@@ -375,7 +468,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
         processDefine.setName(name);
         processDefine.setReleaseState(ReleaseState.OFFLINE);
         processDefine.setProjectId(project.getId());
-        processDefine.setProcessDefinitionJson(processDefinitionJson);
+        processDefine.setProcessDefinitionJson(refreshTaskNodeDependParams(processDefinitionJson));
         processDefine.setDescription(desc);
         processDefine.setLocations(locations);
         processDefine.setConnects(connects);
@@ -751,7 +844,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
      * @return import process
      */
     @Transactional(rollbackFor = RuntimeException.class)
-    public Map<String, Object> importProcessDefinition(User loginUser, MultipartFile file, String currentProjectName) {
+    public Map<String, Object> importProcessDefinition(User loginUser, MultipartFile file, String currentProjectName) throws Exception {
         Map<String, Object> result = new HashMap<>(5);
         String processMetaJson = FileUtils.file2String(file);
         List<ProcessMeta>  processMetaList = JSONUtils.toList(processMetaJson, ProcessMeta.class);
@@ -781,7 +874,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
      * @param processMeta
      * @return
      */
-    private boolean checkAndImportProcessDefinition(User loginUser, String currentProjectName, Map<String, Object> result, ProcessMeta processMeta) {
+    private boolean checkAndImportProcessDefinition(User loginUser, String currentProjectName, Map<String, Object> result, ProcessMeta processMeta) throws Exception {
 
         if (!checkImportanceParams(processMeta, result)) {
             return false;
@@ -850,7 +943,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
                                                        Map<String, Object> result,
                                                        ProcessMeta processMeta,
                                                        String processDefinitionName,
-                                                       String importProcessParam) {
+                                                       String importProcessParam) throws Exception {
         Map<String, Object> createProcessResult = null;
         try {
             createProcessResult = createProcessDefinition(loginUser
@@ -1264,6 +1357,16 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
             return result;
         }
         DAG<String, TaskNode, TaskNodeRelation> dag = genDagGraph(processDefinition);
+
+        TreeViewDto parentTreeViewDto = buildTreeViewDto(processId, limit, dag);
+
+        result.put(Constants.DATA_LIST, parentTreeViewDto);
+        result.put(Constants.STATUS, Status.SUCCESS);
+        result.put(Constants.MSG, Status.SUCCESS.getMsg());
+        return result;
+    }
+
+    private TreeViewDto buildTreeViewDto(Integer processId, Integer limit, DAG<String, TaskNode, TaskNodeRelation> dag) {
         /**
          * nodes that is running
          */
@@ -1371,12 +1474,156 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
                 waitingRunningNodeMap.clear();
             }
         }
+
+        return parentTreeViewDto;
+    }
+
+    /**
+     * Generate the DAG Graph based on the process definition id
+     *
+     * @param processDefinition process definition
+     * @return dag graph
+     */
+    private DAG<String, TaskNode, TaskNodeRelation> genDagGraph(ProcessDefinition processDefinition, boolean isResetDepend) {
+
+        String processDefinitionJson = processDefinition.getProcessDefinitionJson();
+
+        ProcessData processData = JSONUtils.parseObject(processDefinitionJson, ProcessData.class);
+
+        ProcessDag processDag = DagHelper.getProcessDag(processData.getTasks());
+
+        if (isResetDepend) {
+            // analyse dependence
+            resetDagTaskNodesByDataLineage(processDag, processDefinition.getId());
+        }
+
+        DAG<String, TaskNode, TaskNodeRelation> dag = new DAG<>();
+
+        /**
+         * Add the ndoes
+         */
+        if (CollectionUtils.isNotEmpty(processDag.getNodes())) {
+            for (TaskNode node : processDag.getNodes()) {
+                dag.addNode(node.getName(), node);
+            }
+        }
+
+        /**
+         * Add the edges
+         */
+        if (CollectionUtils.isNotEmpty(processDag.getEdges())) {
+            for (TaskNodeRelation edge : processDag.getEdges()) {
+                dag.addEdge(edge.getStartNode(), edge.getEndNode());
+            }
+        }
+
+        return dag;
+    }
+
+    /**
+     * Encapsulates the TreeView structure (dependence)
+     *
+     * @param processId process definition id
+     * @return tree view json data
+     * @throws Exception exception
+     */
+    public Map<String, Object> viewTreeByDepend(Integer processId) throws Exception {
+        Map<String, Object> result = new HashMap<>();
+
+        ProcessDefinition processDefinition = processDefineMapper.selectById(processId);
+        if (processDefinition == null) {
+            logger.info("process define not exists");
+            throw new RuntimeException("process define not exists");
+        }
+        DAG<String, TaskNode, TaskNodeRelation> dag = genDagGraph(processDefinition, true);
+
+        TreeViewDto parentTreeViewDto = buildTreeViewDto(processId, -1, dag);
+
         result.put(Constants.DATA_LIST, parentTreeViewDto);
         result.put(Constants.STATUS, Status.SUCCESS);
         result.put(Constants.MSG, Status.SUCCESS.getMsg());
         return result;
     }
 
+    /**
+     * reset dag task nodes by data lineage
+     * @param processDag
+     * @param processDefinitionId
+     */
+    private void resetDagTaskNodesByDataLineage(ProcessDag processDag, int processDefinitionId) {
+        Map<String, TaskNode> existedTaskNodeMap = new HashMap<>();
+
+        for(TaskNode taskNode : processDag.getNodes()) {
+            if (taskNode.isForbidden()) {
+                continue;
+            }
+
+            existedTaskNodeMap.put(processDefinitionId + taskNode.getName(), taskNode);
+        }
+
+        int nodeSize = processDag.getNodes().size();
+        for(int i = 0; i < nodeSize; i++) {
+            if (processDag.getNodes().get(i).isForbidden()) {
+                continue;
+            }
+
+            analyseNodeDependByTableLineage(processDag, processDag.getNodes().get(i), processDag.getNodes().get(i), existedTaskNodeMap);
+        }
+    }
+
+    /**
+     * analyse node depend by table lineage
+     * @param processDag
+     * @param analyseNode
+     * @param postNode
+     * @param existedTaskNodeMap
+     */
+    private void analyseNodeDependByTableLineage(ProcessDag processDag, TaskNode analyseNode, TaskNode postNode, Map<String, TaskNode> existedTaskNodeMap) {
+        // exist depend tag
+        AbstractParameters parameters = TaskParametersUtils.getParameters(analyseNode.getType(), analyseNode.getParams());
+        if (!parameters.isCheckDepend()) {
+            return;
+        }
+
+        // query all dependent processes
+        String[] dependNodeKeys = parameters.getDependNodeKeys().split(Constants.COMMA);
+        List<ProcessDefinition> processDefinitionList = processService.queryDependDefinitionList(dependNodeKeys);
+        if (CollectionUtils.isEmpty(processDefinitionList)) {
+            return;
+        }
+
+        for (ProcessDefinition processDefinition : processDefinitionList) {
+            ProcessData processData = JSONUtils.parseObject(processDefinition.getProcessDefinitionJson(), ProcessData.class);
+            List<TaskNode> dependTaskNodeList = (processData.getTasks() == null) ? new ArrayList<>() : processData.getTasks();
+
+            for (TaskNode realNode : dependTaskNodeList) {
+                if (!realNode.isForbidden()
+                        && !analyseNode.getName().equals(realNode.getName())
+                        && DependUnionKeyUtils.existDependRelation(realNode, dependNodeKeys)) {
+
+                    // check if the depend node exists
+                    if (existedTaskNodeMap.containsKey(processDefinition.getId() + realNode.getName())) {
+                        TaskNode dependNode = existedTaskNodeMap.get(processDefinition.getId() + realNode.getName());
+                        processDag.getEdges().add(new TaskNodeRelation(dependNode.getName(), postNode.getName()));
+                        postNode.setPreTasks(JSONUtils.toJsonString(new String[]{dependNode.getName()}));
+                        continue;
+                    }
+
+                    // new depend node
+                    TaskNode dependNode = TaskNodeUtils.buildDependTaskNode(processDefinition.getName(), realNode.getName(), 0, 0);
+
+                    // add node relation
+                    processDag.getNodes().add(dependNode);
+                    processDag.getEdges().add(new TaskNodeRelation(dependNode.getName(), postNode.getName()));
+                    postNode.setPreTasks(JSONUtils.toJsonString(new String[]{dependNode.getName()}));
+
+                    existedTaskNodeMap.put(processDefinition.getId() + realNode.getName(), dependNode);
+
+                    analyseNodeDependByTableLineage(processDag, realNode, dependNode, existedTaskNodeMap);
+                }
+            }
+        }
+    }
 
     /**
      * Generate the DAG Graph based on the process definition id
@@ -1402,7 +1649,6 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
 
         return new DAG<>();
     }
-
 
     /**
      * whether the graph has a ring
@@ -1451,7 +1697,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
 
     private Map<String, Object> copyProcessDefinition(User loginUser,
                                                       Integer processId,
-                                                      Project targetProject) throws JsonProcessingException {
+                                                      Project targetProject) throws Exception {
 
         Map<String, Object> result = new HashMap<>();
 
@@ -1484,7 +1730,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
     public Map<String, Object> batchCopyProcessDefinition(User loginUser,
                                                           String projectName,
                                                           String processDefinitionIds,
-                                                          int targetProjectId){
+                                                          int targetProjectId) throws Exception {
         Map<String, Object> result = new HashMap<>();
         List<String> failedProcessList = new ArrayList<>();
 
@@ -1546,7 +1792,7 @@ public class ProcessDefinitionServiceImpl extends BaseService implements
             putMsg(result, Status.PROCESS_DEFINITION_IDS_IS_EMPTY, processDefinitionIds);
             return result;
         }
-        
+
         Project targetProject = projectMapper.queryDetailById(targetProjectId);
         if(targetProject == null){
             putMsg(result, Status.PROJECT_NOT_FOUNT, targetProjectId);

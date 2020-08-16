@@ -55,6 +55,12 @@ public class MasterConfig {
     @Value("${master.listen.port:5678}")
     private int listenPort;
 
+    @Value("${table.lineage.depend.retryTimes:240}")
+    private int tableLineageDependRetryTimes;
+
+    @Value("${table.lineage.depend.retryInterval:2}")
+    private int tableLineageDependRetryInterval;
+
     public int getListenPort() {
         return listenPort;
     }
@@ -136,5 +142,21 @@ public class MasterConfig {
 
     public void setMasterDispatchTaskNumber(int masterDispatchTaskNumber) {
         this.masterDispatchTaskNumber = masterDispatchTaskNumber;
+    }
+
+    public int getTableLineageDependRetryTimes() {
+        return tableLineageDependRetryTimes;
+    }
+
+    public void setTableLineageDependRetryTimes(int tableLineageDependRetryTimes) {
+        this.tableLineageDependRetryTimes = tableLineageDependRetryTimes;
+    }
+
+    public int getTableLineageDependRetryInterval() {
+        return tableLineageDependRetryInterval;
+    }
+
+    public void setTableLineageDependRetryInterval(int tableLineageDependRetryInterval) {
+        this.tableLineageDependRetryInterval = tableLineageDependRetryInterval;
     }
 }

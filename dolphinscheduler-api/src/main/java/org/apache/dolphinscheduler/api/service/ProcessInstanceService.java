@@ -408,7 +408,7 @@ public class ProcessInstanceService extends BaseService {
      */
     public Map<String, Object> updateProcessInstance(User loginUser, String projectName, Integer processInstanceId,
                                                      String processInstanceJson, String scheduleTime, Boolean syncDefine,
-                                                     Flag flag, String locations, String connects) throws ParseException {
+                                                     Flag flag, String locations, String connects) throws Exception {
         Map<String, Object> result = new HashMap<>();
         Project project = projectMapper.queryByName(projectName);
 
@@ -465,14 +465,15 @@ public class ProcessInstanceService extends BaseService {
             if(tenant != null){
                 processInstance.setTenantCode(tenant.getTenantCode());
             }
-            processInstance.setProcessInstanceJson(processInstanceJson);
+
+            processInstance.setProcessInstanceJson(processDefinitionService.refreshTaskNodeDependParams(processInstanceJson));
             processInstance.setGlobalParams(globalParams);
         }
 
         int update = processService.updateProcessInstance(processInstance);
         int updateDefine = 1;
         if (Boolean.TRUE.equals(syncDefine) && StringUtils.isNotEmpty(processInstanceJson)) {
-            processDefinition.setProcessDefinitionJson(processInstanceJson);
+            processDefinition.setProcessDefinitionJson(processInstance.getProcessInstanceJson());
             processDefinition.setGlobalParams(originDefParams);
             processDefinition.setLocations(locations);
             processDefinition.setConnects(connects);
@@ -672,11 +673,10 @@ public class ProcessInstanceService extends BaseService {
         ganttDto.setTaskNames(nodeList);
 
         List<Task> taskList = new ArrayList<>();
-        for (String node : nodeList) {
-            TaskInstance taskInstance = taskInstanceMapper.queryByInstanceIdAndName(processInstanceId, node);
-            if (taskInstance == null) {
-                continue;
-            }
+
+        // query node task and virtual task
+        List<TaskInstance> taskInstanceList = taskInstanceMapper.findALlTaskListByProcessInstanceId(processInstanceId);
+        for (TaskInstance taskInstance : taskInstanceList) {
             Date startTime = taskInstance.getStartTime() == null ? new Date() : taskInstance.getStartTime();
             Date endTime = taskInstance.getEndTime() == null ? new Date() : taskInstance.getEndTime();
             Task task = new Task();

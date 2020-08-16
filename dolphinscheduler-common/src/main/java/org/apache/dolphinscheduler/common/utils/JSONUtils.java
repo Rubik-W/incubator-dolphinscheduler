@@ -257,12 +257,10 @@ public class JSONUtils {
         }
     }
 
-
     /**
      * json serializer
      */
     public static class JsonDataSerializer extends JsonSerializer<String> {
-
         @Override
         public void serialize(String value, JsonGenerator gen, SerializerProvider provider) throws IOException {
             gen.writeRawValue(value);

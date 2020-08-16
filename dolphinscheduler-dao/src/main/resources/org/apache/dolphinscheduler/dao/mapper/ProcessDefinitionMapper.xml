@@ -90,7 +90,6 @@
         AND pd.id = #{processDefineId}
     </select>
 
-
     <select id="listResources" resultType="java.util.HashMap">
         SELECT id,resource_ids
         FROM t_ds_process_definition
@@ -102,4 +101,14 @@
         FROM t_ds_process_definition
         WHERE user_id = #{userId} and release_state = 1 and resource_ids is not null and resource_ids != ''
     </select>
+
+    <select id="queryDefinitionByTargetNodeKeys" resultType="org.apache.dolphinscheduler.dao.entity.ProcessDefinition">
+        select t1.id, t1.name, t1.project_id, t1.process_definition_json from t_ds_process_definition t1
+        where t1.release_state = 1
+        and
+        <foreach collection="targetNodeKeys" index="index" item="i" open="(" separator="or" close=")">
+            t1.process_definition_json like concat('%', #{i}, '%')
+        </foreach>
+    </select>
+
 </mapper>
